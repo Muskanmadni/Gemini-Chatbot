@@ -1,17 +1,13 @@
 import os
 import streamlit as st
-import google.generativeai as genai
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
-gemini_api_key = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=gemini_api_key)
-model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
-st.set_page_config(page_title="Gemini Chatbot", page_icon="🤖", layout="centered")
-
-st.title("Gemini Chatbot with File Upload")
+st.set_page_config(page_title="Gemini Chatbot (via OpenRouter)", page_icon="🤖", layout="centered")
 
 # 🌌 Custom CSS with background image + animations
 st.markdown("""
@@ -131,11 +127,10 @@ st.markdown("""
     .input-container button:active {
         transform: scale(0.95);
     }
-</style>
-
+    </style>
 """, unsafe_allow_html=True)
 
-# Session state
+# Chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
@@ -151,7 +146,29 @@ if uploaded_file:
     file_content = uploaded_file.read().decode("utf-8", errors="ignore")
     st.session_state.uploaded_file = file_content
 
-# Chat history with animations
+# OpenRouter API endpoint
+api_url = "https://openrouter.ai/api/v1/chat/completions"
+
+# Function to generate response using Gemini model
+def generate_gemini_response(user_input, file_content):
+    prompt = f"{user_input}\n\nFile content:\n{file_content}" if file_content else user_input
+    headers = {
+        "Authorization": f"Bearer {openrouter_api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "google/gemini-2.5-flash-preview-05-20",  # Adjust the model name as needed
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 1000
+    }
+    response = requests.post(api_url, headers=headers, json=payload)
+    if response.status_code == 200:
+        response_json = response.json()
+        return response_json["choices"][0]["message"]["content"]
+    else:
+        return f"Error: {response.status_code} - {response.text}"
+
+# Chat display
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 for i, (sender, message) in enumerate(st.session_state.chat_history):
     sender_class = "user" if sender == "You" else "bot"
@@ -161,19 +178,17 @@ for i, (sender, message) in enumerate(st.session_state.chat_history):
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Send handler
+# Handle send
 def handle_send():
     user_input = st.session_state.input
     file_text = st.session_state.uploaded_file or ""
     if user_input or file_text:
-        combined_input = f"{user_input}\n\nFile content:\n{file_text}" if file_text else user_input
         st.session_state.chat_history.append(("You", user_input))
-        response = model.generate_content(combined_input)
-        response_text = response.text if hasattr(response, "text") else ""
+        response_text = generate_gemini_response(user_input, file_text)
         st.session_state.chat_history.append(("Gemini", response_text))
         st.session_state.input = ""
 
-# Input area
+# Input
 st.markdown('<div class="input-container">', unsafe_allow_html=True)
 col1, col2 = st.columns([6, 1])
 with col1:
