@@ -3,13 +3,20 @@ import streamlit as st
 import requests
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load API key from environment
 load_dotenv()
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+openrouter_api_key = os.getenv("OpenRouter_key")
 
+# Set Streamlit page config
 st.set_page_config(page_title="Gemini Chatbot (via OpenRouter)", page_icon="🤖", layout="centered")
 
-# 🌌 Custom CSS with background image + animations
+# 💾 Initialize session state
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "input" not in st.session_state:
+    st.session_state.input = ""
+
+# 🎨 Custom CSS
 st.markdown("""
     <style>
     body {
@@ -20,7 +27,7 @@ st.markdown("""
         background-repeat: no-repeat;
     }
     .stApp {
-        background: rgba(0,0,0,0.6);
+        background: rgba(0, 0, 0, 0.6);
         color: white;
     }
     .chat-container {
@@ -30,15 +37,6 @@ st.markdown("""
         max-height: 400px;
         overflow-y: auto;
         padding: 10px;
-        scrollbar-width: thin;
-        scrollbar-color: #666 transparent;
-    }
-    .chat-container::-webkit-scrollbar {
-        width: 6px;
-    }
-    .chat-container::-webkit-scrollbar-thumb {
-        background-color: #666;
-        border-radius: 10px;
     }
     .chat-message {
         padding: 10px 14px;
@@ -47,12 +45,7 @@ st.markdown("""
         word-wrap: break-word;
         opacity: 0;
         transform: translateY(20px);
-        animation: fadeInUp 0.6s forwards;
-    }
-    .chat-message:hover {
-        transform: scale(1.02);
-        transition: transform 0.3s;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        animation: fadeInUp 0.5s forwards;
     }
     .user {
         background-color: #DCF8C6;
@@ -67,11 +60,7 @@ st.markdown("""
         color: black;
     }
     @keyframes fadeInUp {
-        0% {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        100% {
+        to {
             opacity: 1;
             transform: translateY(0);
         }
@@ -81,18 +70,6 @@ st.markdown("""
         gap: 10px;
         margin-top: 15px;
         align-items: center;
-        opacity: 0;
-        animation: fadeInSlide 1s forwards 0.3s;
-    }
-    @keyframes fadeInSlide {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
     }
     .input-container input[type="text"] {
         flex: 1;
@@ -102,11 +79,6 @@ st.markdown("""
         background-color: #333;
         color: white;
         outline: none;
-        transition: border-color 0.3s, box-shadow 0.3s;
-    }
-    .input-container input[type="text"]:focus {
-        border-color: #0f0;
-        box-shadow: 0 0 8px #0f0;
     }
     .input-container input[type="text"]::placeholder {
         color: #aaa;
@@ -117,58 +89,33 @@ st.markdown("""
         border-radius: 50%;
         padding: 10px;
         cursor: pointer;
-        transition: transform 0.2s, background-color 0.2s, box-shadow 0.2s;
+        transition: transform 0.2s, background-color 0.2s;
     }
     .input-container button:hover {
         background-color: #666;
         transform: scale(1.1);
-        box-shadow: 0 0 10px #888;
-    }
-    .input-container button:active {
-        transform: scale(0.95);
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Chat history
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if "input" not in st.session_state:
-    st.session_state.input = ""
-
-if "uploaded_file" not in st.session_state:
-    st.session_state.uploaded_file = None
-
-# File uploader (optional)
-uploaded_file = st.file_uploader("Upload a file (optional)", type=["txt", "pdf", "csv"])
-if uploaded_file:
-    file_content = uploaded_file.read().decode("utf-8", errors="ignore")
-    st.session_state.uploaded_file = file_content
-
-# OpenRouter API endpoint
-api_url = "https://openrouter.ai/api/v1/chat/completions"
-
-# Function to generate response using Gemini model
-def generate_gemini_response(user_input, file_content):
-    prompt = f"{user_input}\n\nFile content:\n{file_content}" if file_content else user_input
+# 🌐 OpenRouter Gemini API call
+def generate_gemini_response(user_input):
     headers = {
         "Authorization": f"Bearer {openrouter_api_key}",
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "google/gemini-2.5-flash-preview-05-20",  # Adjust the model name as needed
-        "messages": [{"role": "user", "content": prompt}],
+        "model": "google/gemini-2.5-flash-preview-05-20",
+        "messages": [{"role": "user", "content": user_input}],
         "max_tokens": 1000
     }
-    response = requests.post(api_url, headers=headers, json=payload)
+    response = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload)
     if response.status_code == 200:
-        response_json = response.json()
-        return response_json["choices"][0]["message"]["content"]
+        return response.json()["choices"][0]["message"]["content"]
     else:
-        return f"Error: {response.status_code} - {response.text}"
+        return f"❌ Error {response.status_code}: {response.text}"
 
-# Chat display
+# 📜 Display chat history
 st.markdown('<div class="chat-container">', unsafe_allow_html=True)
 for i, (sender, message) in enumerate(st.session_state.chat_history):
     sender_class = "user" if sender == "You" else "bot"
@@ -178,17 +125,16 @@ for i, (sender, message) in enumerate(st.session_state.chat_history):
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Handle send
+# ✉️ Handle send button
 def handle_send():
-    user_input = st.session_state.input
-    file_text = st.session_state.uploaded_file or ""
-    if user_input or file_text:
+    user_input = st.session_state.input.strip()
+    if user_input:
         st.session_state.chat_history.append(("You", user_input))
-        response_text = generate_gemini_response(user_input, file_text)
+        response_text = generate_gemini_response(user_input)
         st.session_state.chat_history.append(("Gemini", response_text))
         st.session_state.input = ""
 
-# Input
+# 💬 Input box and send button
 st.markdown('<div class="input-container">', unsafe_allow_html=True)
 col1, col2 = st.columns([6, 1])
 with col1:
